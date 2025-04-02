@@ -1,7 +1,9 @@
-import torch
-import torch.nn as nn 
-from torch.nn import functional as F
 import math
+
+import torch
+import torch.nn as nn
+from torch.nn import functional as F
+import torch.optim as optim
 
 # Single headed attention mechanism 
 class Attention(nn.Module):
@@ -28,7 +30,7 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, n_heads, d_head, d_embed, dropout):
         super().__init__()
         self.n_heads = nn.ModuleList([Attention(d_embed, d_head, dropout) for _ in range(n_heads)])
-        self.proj = nn.Linear(n_heads * d_head)
+        self.proj = nn.Linear(n_heads * d_head, d_embed)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -68,3 +70,18 @@ class Transformer(nn.Module):
         x = x + self.attention(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
+
+# Transformer language model which predicts next token
+class TransPredict(nn.Module):
+    def __init__(self, n_blocks, d_embed, n_heads, dropout, lr):
+        super().__init__()
+        
+        self.blocks = nn.Sequential(*[Transformer(d_embed, n_heads, dropout) for _ in range(n_blocks)])
+
+        self.criterion = nn.CrossEntropyLoss()
+        self.optim = optim.Adam()
+
+    def forward(self, x):
+        return self.blocks(x)
+
+        
