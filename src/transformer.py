@@ -19,7 +19,7 @@ class Attention(nn.Module):
     def forward(self, x):
         query = self.Query(x)
         key = self.Key(x)
-        numerator = query @ key.T
+        numerator = query @ key.transpose(-2, -1) * key.shape[-1]**-0.5
         y = F.softmax((numerator / math.sqrt(self.d_k)))
         value = self.Value(x)
         y = y @ value
@@ -29,7 +29,7 @@ class Attention(nn.Module):
 class MultiHeadAttention(nn.Module):
     def __init__(self, n_heads, d_head, d_embed, dropout):
         super().__init__()
-        self.n_heads = nn.ModuleList([Attention(d_embed, d_head, dropout) for _ in range(n_heads)])
+        self.heads = nn.ModuleList([Attention(d_embed, d_head, dropout) for _ in range(n_heads)])
         self.proj = nn.Linear(n_heads * d_head, d_embed)
         self.dropout = nn.Dropout(dropout)
 
@@ -41,11 +41,11 @@ class MultiHeadAttention(nn.Module):
 
 # Fully connected feed forward network layer 
 class MultiLayerPerceptron(nn.Module):
-    def __init__(self, n_embed, dropout):
+    def __init__(self, d_embed, dropout):
         super().__init__()
-        self.fc1 = nn.Linear(n_embed, 4 * n_embed)
+        self.fc1 = nn.Linear(d_embed, 4 * d_embed)
         self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(4 * n_embed, n_embed)
+        self.fc2 = nn.Linear(4 * d_embed, d_embed)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -65,7 +65,6 @@ class Transformer(nn.Module):
         self.norm1 = nn.LayerNorm(d_embed)
         self.norm2 = nn.LayerNorm(d_embed)
 
-
     def forward(self, x):
         x = x + self.attention(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
@@ -73,15 +72,25 @@ class Transformer(nn.Module):
 
 # Transformer language model which predicts next token
 class TransPredict(nn.Module):
-    def __init__(self, n_blocks, d_embed, n_heads, dropout, lr):
+    def __init__(self, vocab_size, n_blocks, d_embed, n_heads, dropout, lr):
         super().__init__()
         
         self.blocks = nn.Sequential(*[Transformer(d_embed, n_heads, dropout) for _ in range(n_blocks)])
 
+        self.token_embedding = nn.Embedding(vocab_size, d_embed)
+        self.position_embedding = nn.Embedding(n_blocks, d_embed)
+        self.head = nn.Linear(d_embed, vocab_size)
+
         self.criterion = nn.CrossEntropyLoss()
-        self.optim = optim.Adam()
+        self.optim = optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, x):
-        return self.blocks(x)
+        B, T = x.shape
 
+        tok = self.token_embedding(x)
+        pos = self.position_embedding((torch.arange(T)))
+        x = tok + pos
+        x = self.blocks(x)
+        x = self.head(x)
+        return x
         
